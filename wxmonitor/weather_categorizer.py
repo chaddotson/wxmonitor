@@ -6,7 +6,7 @@ logger = getLogger(__name__)
 
 
 class WeatherCategorizer(object):
-    _events_regex_str = r"(\bhail\b|\btrees.*?down\b|\bdamage\b|\broof\b|\bponding\b|\bflooding\b|\bflood\b|\bwind\b)"
+    _events_regex_str = r"(\bnnow\b|\brain\b|\bhail\b|\btrees.*?down\b|\bdamage\b|\broof\b|\bponding\b|\bflooding\b|\bflood\b|\bwind\b)"
 
     def __init__(self, ansi_code_file):
         # get ansi code file from: https://www.census.gov/geo/reference/codes/place.html
@@ -25,11 +25,6 @@ class WeatherCategorizer(object):
         self._ansi_code_file = ansi_code_file
         self._build_place_data()
         self._build_regexes()
-
-
-    @property
-    def zipcodes(self):
-        return self._zipcodes
 
     def _build_place_data(self):
 
@@ -70,19 +65,20 @@ class WeatherCategorizer(object):
         self._spotter_regex = re.compile(spotter_retex_str, re.IGNORECASE | re.MULTILINE)
         logger.debug("Done")
 
-    def process(self, item):
+    def process(self, status):
+        logger.debug("Processing: %s", status)
 
-        logger.debug("Processing: %s", item)
+        content = status.text
 
-        cities = list(set(city.lower() for city in self._city_location_regex.findall(item)))
-        counties = self._county_location_regex.findall(item)
+        cities = list(set(city.lower() for city in self._city_location_regex.findall(content)))
+        counties = self._county_location_regex.findall(content)
 
         for city in cities:
             if city in self._city_county_map and self._city_county_map[city] is not None:
                 counties.extend(self._city_county_map[city])
 
         counties = list(set(" ".join(county.split()[:-1]).lower() for county in counties))
-        events = list(set(map(str.lower, self._event_type_regex.findall(item))))
+        events = list(set(map(str.lower, self._event_type_regex.findall(content))))
 
         logger.debug("Done\n - Cities: %s\n - Counties: %s\n - Events: %s", cities, counties, events)
 
@@ -90,5 +86,5 @@ class WeatherCategorizer(object):
             "cities": cities,
             "counties": counties,
             "events": events,
-            "spotter": self._spotter_regex.search(item) is not None
+            "spotter": self._spotter_regex.search(content) is not None
         }
