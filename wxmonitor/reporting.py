@@ -15,7 +15,7 @@ class ReportingWorkerThread(ExcThread):
 
     def __init__(self, cacher, seconds_between_reports=600):
         self._impl = ReporterImpl(cacher, seconds_between_reports)
-        super(ReportingWorkerThread, self).__init__(loop_sleep_timeout=2)
+        super(ReportingWorkerThread, self).__init__(loop_sleep_timeout=120)
 
     def _do_work(self):
         self._impl.process()
@@ -30,6 +30,7 @@ class ReportingWorkerThread(ExcThread):
 class ReporterImpl(object):
     def __init__(self, twitter_api, cacher, seconds_between_reports, image_format="png"):
         self._twitter_api = twitter_api
+        self._prev_cacher_len = 0
         self._cacher = cacher
         self._seconds_between_reports = seconds_between_reports
         self._image_format = image_format
@@ -44,16 +45,22 @@ class ReporterImpl(object):
         self._next_report_time_threshold = time() * self._seconds_between_reports
 
     def process(self):
-        self._cacher.expire()
+        statuses = self._cacher.get_statuses()
 
-        if len(self._cacher) == 0 or not self._report_time_threshold_exceeded():
+        current_len = len(statuses)
+
+        print("Checking")
+
+        if not ((self._prev_cacher_len == 0 and current_len > 0) or
+                    (self._prev_cacher_len > 0 and current_len == 0) or
+                    (current_len != 0 and self._report_time_threshold_exceeded())):
             return
 
-        recents = self._cacher.get_statuses()
+        print("processing!")
 
-        seen_counties = get_seen_counties(recents)
+        seen_counties = get_seen_counties(statuses)
         minimum, maximum = get_min_max_county_count(seen_counties)
-        uncategorized = get_uncategorized(recents)
+        uncategorized = get_uncategorized(statuses)
 
         print(seen_counties)
 
