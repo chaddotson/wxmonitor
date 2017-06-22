@@ -17,7 +17,7 @@ class ListenerAction(object):
 
 class CountingListenerAction(ListenerAction):
     def __init__(self, *args, **kwargs):
-        self._counter = 0;
+        self._counter = 0
         self._lock = RLock()
         super(CountingListenerAction, self).__init__(*args, **kwargs)
 
@@ -48,7 +48,8 @@ class PrintingListenerAction(ListenerAction):
         print(p)
 
 
-ProcessedStatus = namedtuple("ProcessedStatus",field_names=["status", "tags"])
+ProcessedStatus = namedtuple("ProcessedStatus", field_names=["status", "tags"])
+
 
 class ProcessingListenerAction(ListenerAction):
     def __init__(self, categorizer, cacher, *args, **kwargs):
@@ -79,5 +80,3 @@ class TwitterStreamListener(StreamListener):
 
     def on_limit(self, track):
         logger.warning("Limits exceeded")
-
-
