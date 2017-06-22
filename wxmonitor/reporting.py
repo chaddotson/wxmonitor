@@ -1,5 +1,7 @@
 from io import BytesIO
 from logging import getLogger
+import matplotlib as mpl
+mpl.use('Agg')
 from matplotlib import pyplot as plt
 from matplotlib.patches import Polygon
 from tempfile import NamedTemporaryFile
@@ -11,14 +13,16 @@ from wxmonitor.utils import ExcThread, get_seen_counties, get_min_max_county_cou
 logger = getLogger(__name__)
 
 
-class ReportingWorkerThread(ExcThread):
-
-    def __init__(self, cacher, seconds_between_reports=600):
-        self._impl = ReporterImpl(cacher, seconds_between_reports)
-        super(ReportingWorkerThread, self).__init__(loop_sleep_timeout=120)
+class ProcessingWorkerThread(ExcThread):
+    def __init__(self, processor_impl):
+        logger.debug("Start data processing worker.")
+        self._impl = processor_impl
+        super(ProcessingWorkerThread, self).__init__(loop_sleep_timeout=120)
 
     def _do_work(self):
+        logger.debug("Processing...")
         self._impl.process()
+        logger.debug("Processing Complete")
 
     def _do_start(self):
         logger.debug("Starting reporter worker.")
@@ -27,9 +31,10 @@ class ReportingWorkerThread(ExcThread):
         logger.debug("Stopping reporter worker.")
 
 
-class ReporterImpl(object):
-    def __init__(self, twitter_api, cacher, seconds_between_reports, image_format="png"):
-        self._twitter_api = twitter_api
+class ProcessingImpl(object):
+    def __init__(self, reporter, cacher, seconds_between_reports=600, image_format="png"):
+        logger.debug("Creating Processing Impl.")
+        self._reporter = reporter
         self._prev_cacher_len = 0
         self._cacher = cacher
         self._seconds_between_reports = seconds_between_reports
@@ -49,33 +54,32 @@ class ReporterImpl(object):
 
         current_len = len(statuses)
 
-        print("Checking")
-
         if not ((self._prev_cacher_len == 0 and current_len > 0) or
                     (self._prev_cacher_len > 0 and current_len == 0) or
                     (current_len != 0 and self._report_time_threshold_exceeded())):
             return
 
-        print("processing!")
+        self._prev_cacher_len = current_len
+
+        logger.debug("Cache len changed from/to Zero or the report threshold has been exceeded.")
 
         seen_counties = get_seen_counties(statuses)
         minimum, maximum = get_min_max_county_count(seen_counties)
         uncategorized = get_uncategorized(statuses)
 
-        print(seen_counties)
+        logger.debug("Seen counties: %s", repr(seen_counties))
 
-        print("There are {0} uncategorized tweets.".format(len(uncategorized)), uncategorized)
+        logger.debug("Uncategorized Statuses: %d", len(uncategorized))
 
-        image_bytes = self.make_image(maximum, minimum, seen_counties)
+        #print("There are {0} uncategorized tweets.".format(len(uncategorized)), uncategorized)
 
+        self.render_map(maximum, minimum, seen_counties)
 
-        # with NamedTemporaryFile(suffix=".png") as f:
-        #     f.write(image_bytes.read())
-        #     self._twitter_api.update_with_media(f.name, "this is a test... beep beep beep")
+        self._reporter.create_output(summary="this is a test")
 
         self._set_next_report_time_threshold()
 
-    def make_image(self, maximum, minimum, seen_counties):
+    def render_map(self, maximum, minimum, seen_counties):
         plt.figure(figsize=(12, 6))
         # TODO: make this configurable... TN for now.
         state_map = make_basemap(lat_0=39.1622, lon_0=-86.5292,
@@ -87,12 +91,62 @@ class ReporterImpl(object):
             poly = Polygon(seg, facecolor=get_rgb(count, minimum, maximum), edgecolor=(0.9, 0.9, 0.9))
             ax.add_patch(poly)
 
-        plt.show()
 
+class ReportOutput(object):
+    def create_output(self, **data):
+        return None
+
+
+class DisplayReportOutput(ReportOutput):
+    def create_output(self, **data):
+        print("Summary:" + data.get("summary", "")[0:140])
+        plt.show()
+        return None
+
+
+class FileReportOutput(ReportOutput):
+    def __init__(self, filename, format="png", reset_seek=True):
+        self._filename = filename
+        self._format = format
+        self._reset_seek = reset_seek
+
+    def create_output(self, **data):
+        plt.savefig(self._filename, format=self._format)
+        return self._filename
+
+
+class BytesReportOutput(ReportOutput):
+    def __init__(self, format="png", reset_seek=True):
+        self._format = format
+        self._reset_seek = reset_seek
+
+    def create_output(self, **data):
         results = BytesIO()
-        plt.savefig(results, format=self._image_format)
-        results.seek(0)
+        plt.savefig(results, format=self._format)
+
+        if self._reset_seek:
+            results.seek(0)
 
         return results
+
+
+class TweetReportOutput(BytesReportOutput):
+    def __init__(self, tweet_api):
+        logger.debug("Creating tweet report generator")
+        self._api = tweet_api
+
+        super(TweetReportOutput, self).__init__(format="png")
+
+    def create_output(self, **data):
+        output = super(TweetReportOutput, self).create_output(**data)
+
+        with NamedTemporaryFile(suffix=".png") as f:
+            f.write(output.read())
+            logger.debug("Named Temp File: %s", f.name)
+            self._api.update_with_media(f.name, data.get("summary", "")[0:140])
+
+        return output
+
+
 
 
