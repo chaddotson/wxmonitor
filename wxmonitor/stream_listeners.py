@@ -1,6 +1,8 @@
 from collections import namedtuple
+from csv import writer
 from logging import getLogger
 from threading import RLock
+from time import time
 
 from tweepy import StreamListener
 
@@ -48,6 +50,25 @@ class PrintingListenerAction(ListenerAction):
         print(p)
 
 
+class LoggingStreamListenerAction(ListenerAction):
+    def __init__(self, logfile):
+        self._logfile = logfile
+        self._handler = None
+        self._writer = None
+
+    def start_logger(self):
+        self._handler = open(self._logfile, "a")
+        self._writer = writer(self._handler)
+        # TODO: If file doesn't exist, write header.
+
+    def stop_logger(self):
+        self._handler.close()
+
+    def process(self, status):
+        self._writer.writerow([time(), status.user.screen_name, status.user.location, status.coordinates, status.text])
+        self._handler.flush()
+
+
 ProcessedStatus = namedtuple("ProcessedStatus", field_names=["status", "tags"])
 
 
@@ -63,7 +84,8 @@ class ProcessingListenerAction(ListenerAction):
 
 
 class TwitterStreamListener(StreamListener):
-    def __init__(self, actions_list, *args, **kwargs):
+    def __init__(self, bot_screen_name, actions_list, *args, **kwargs):
+        self._bot_screen_name = bot_screen_name.lower()
         self._actions_list = actions_list
 
         super(TwitterStreamListener, self).__init__(*args, **kwargs)
@@ -75,6 +97,9 @@ class TwitterStreamListener(StreamListener):
             return False
 
     def on_status(self, status):
+        if status.user.screen_name.lower() == self._bot_screen_name:
+            return
+
         for action in self._actions_list:
             action.process(status)
 

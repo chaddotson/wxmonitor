@@ -5,7 +5,7 @@ mpl.use('Agg')
 from matplotlib import pyplot as plt
 from matplotlib.patches import Polygon
 from tempfile import NamedTemporaryFile
-from time import time
+from datetime import datetime, timedelta
 
 from wxmonitor.graphing import make_basemap, make_county_hash, get_rgb
 from wxmonitor.utils import ExcThread, get_seen_counties, get_min_max_county_count, get_uncategorized
@@ -32,11 +32,12 @@ class ProcessingWorkerThread(ExcThread):
 
 
 class ProcessingImpl(object):
-    def __init__(self, reporter, cacher, seconds_between_reports=600, image_format="png"):
+    def __init__(self, reporter, cacher, tracking_tag, seconds_between_reports=300, image_format="png"):
         logger.debug("Creating Processing Impl.")
         self._reporter = reporter
-        self._prev_cacher_len = 0
         self._cacher = cacher
+        self._tracking_tag = tracking_tag
+        self._prev_cacher_len = 0
         self._seconds_between_reports = seconds_between_reports
         self._image_format = image_format
 
@@ -44,15 +45,26 @@ class ProcessingImpl(object):
         self._set_next_report_time_threshold()
 
     def _report_time_threshold_exceeded(self):
-        return time() >= self._next_report_time_threshold
+        return datetime.now() >= self._next_report_time_threshold
 
     def _set_next_report_time_threshold(self):
-        self._next_report_time_threshold = time() * self._seconds_between_reports
+        self._next_report_time_threshold = datetime.now() + timedelta(seconds=self._seconds_between_reports)
+        logger.debug("Next report time: %s", self._next_report_time_threshold)
 
     def process(self):
         statuses = self._cacher.get_statuses()
 
         current_len = len(statuses)
+
+
+        logger.debug("(self._prev_cacher_len == 0 and current_len > 0) => %s",
+                     (self._prev_cacher_len == 0 and current_len > 0))
+
+        logger.debug("(self._prev_cacher_len > 0 and current_len == 0) => %s",
+                     (self._prev_cacher_len > 0 and current_len == 0))
+
+        logger.debug("(current_len != 0 and not self._report_time_threshold_exceeded()) => %s",
+                     (current_len != 0 and self._report_time_threshold_exceeded()))
 
         if not ((self._prev_cacher_len == 0 and current_len > 0) or
                     (self._prev_cacher_len > 0 and current_len == 0) or
@@ -75,7 +87,11 @@ class ProcessingImpl(object):
 
         self.render_map(maximum, minimum, seen_counties)
 
-        self._reporter.create_output(summary="this is a test")
+        summary = "Data over 1hr\nTotal Statuses: {0}\nTotal Uncategorized: {1}\n{2}".format(current_len,
+                                                                                             len(uncategorized),
+                                                                                             self._tracking_tag)
+
+        self._reporter.create_output(summary=summary)
 
         self._set_next_report_time_threshold()
 
