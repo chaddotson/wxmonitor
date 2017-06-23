@@ -32,7 +32,7 @@ class ProcessingWorkerThread(ExcThread):
 
 
 class ProcessingImpl(object):
-    def __init__(self, reporter, cacher, tracking_tag, seconds_between_reports=300, image_format="png"):
+    def __init__(self, reporter, cacher, tracking_tag, seconds_between_reports=600, image_format="png"):
         logger.debug("Creating Processing Impl.")
         self._reporter = reporter
         self._cacher = cacher
